@@ -5,8 +5,13 @@
 //实现了match_server的功能
 //主要包含两方面：1. 作为服务器接受game的请求 2.
 //作为客户端向save服务器发送保存数据的请求
+#include <thrift/TToString.h>
+#include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/concurrency/ThreadManager.h>
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/server/TSimpleServer.h>
+#include <thrift/server/TThreadPoolServer.h>
+#include <thrift/server/TThreadedServer.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
@@ -65,18 +70,18 @@ class Pool { //玩家池
              [](User &a, User &b) { return a.score < b.score; });
         while (users.size() > 1) {
             //将当前分差<=50且最接近的两个人进行匹配
-            bool exist=false;//记录当前的玩家池中是否存在分差<=50的两个人
+            bool exist = false; //记录当前的玩家池中是否存在分差<=50的两个人
             for (int i = 0; i < users.size() - 1; i++) {
                 auto a = users[i];
                 auto b = users[i + 1];
                 if (b.score - a.score <= 50) {
                     users.erase(users.begin() + i, users.begin() + i + 2);
                     save_result(a.id, b.id);
-                    exist=true;
+                    exist = true;
                     break; //每次只进行一组匹配
                 }
             }
-            if(!exist) //如果不存在分差<=50的两个人，则停止循环，进行等待
+            if (!exist) //如果不存在分差<=50的两个人，则停止循环，进行等待
                 break;
         }
     }
@@ -133,6 +138,21 @@ class MatchHandler : virtual public MatchIf {
         return 0;
     }
 };
+
+class MatchCloneFactory : virtual public MatchIfFactory {
+  public:
+    ~MatchCloneFactory() override = default;
+    MatchIf *
+    getHandler(const ::apache::thrift::TConnectionInfo &connInfo) override {
+        std::shared_ptr<TSocket> sock =
+            std::dynamic_pointer_cast<TSocket>(connInfo.transport);
+        return new MatchHandler;
+    }
+    void releaseHandler(MatchIf *handler) override {
+        delete handler;
+    }
+};
+
 void consume_task() {
     while (1) {
         unique_lock<mutex> lck(mq.m);
@@ -159,17 +179,11 @@ void consume_task() {
 
 int main(int argc, char **argv) {
     int port = 9090;
-    ::std::shared_ptr<MatchHandler> handler(new MatchHandler());
-    ::std::shared_ptr<TProcessor> processor(new MatchProcessor(handler));
-    ::std::shared_ptr<TServerTransport> serverTransport(
-        new TServerSocket(port));
-    ::std::shared_ptr<TTransportFactory> transportFactory(
-        new TBufferedTransportFactory());
-    ::std::shared_ptr<TProtocolFactory> protocolFactory(
-        new TBinaryProtocolFactory());
-
-    TSimpleServer server(processor, serverTransport, transportFactory,
-                         protocolFactory);
+    TThreadedServer server(std::make_shared<MatchProcessorFactory>(
+                               std::make_shared<MatchCloneFactory>()),
+                           std::make_shared<TServerSocket>(port),
+                           std::make_shared<TBufferedTransportFactory>(),
+                           std::make_shared<TBinaryProtocolFactory>());
 
     cout << "Start Match Server" << endl;
 
