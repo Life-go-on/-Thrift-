@@ -21,6 +21,7 @@
 #include <queue>
 #include <set>
 #include <thread>
+#include <unistd.h>
 
 using namespace ::apache::thrift;
 using namespace ::apache::thrift::protocol;
@@ -60,19 +61,31 @@ class Pool { //玩家池
     }
 
     void match() {
+        sort(users.begin(), users.end(),
+             [](User &a, User &b) { return a.score < b.score; });
         while (users.size() > 1) {
-            //有两个人就匹配
-            auto a = users[0], b = users[1];
-            users.erase(users.begin());
-            users.erase(users.begin());
-            save_result(a.id, b.id);
+            //将当前分差<=50且最接近的两个人进行匹配
+            bool exist=false;//记录当前的玩家池中是否存在分差<=50的两个人
+            for (int i = 0; i < users.size() - 1; i++) {
+                auto a = users[i];
+                auto b = users[i + 1];
+                if (b.score - a.score <= 50) {
+                    users.erase(users.begin() + i, users.begin() + i + 2);
+                    save_result(a.id, b.id);
+                    exist=true;
+                    break; //每次只进行一组匹配
+                }
+            }
+            if(!exist) //如果不存在分差<=50的两个人，则停止循环，进行等待
+                break;
         }
     }
 
     void save_result(int id1, int id2) {
         cout << "Match Result:" << id1 << ' ' << id2 << endl;
 
-        std::shared_ptr<TTransport> socket(new TSocket("123.57.47.211", 9090));
+        std::shared_ptr<TTransport> socket(new TSocket(
+            "123.57.47.211", 9090)); // 123.57.47.211为save服务器的地址
         std::shared_ptr<TTransport> transport(new TBufferedTransport(socket));
         std::shared_ptr<TProtocol> protocol(new TBinaryProtocol(transport));
         SaveClient client(protocol);
@@ -124,12 +137,11 @@ void consume_task() {
     while (1) {
         unique_lock<mutex> lck(mq.m);
         if (mq.q.empty()) {
-            //如果当前没有task，那么consume_task()应该被阻塞（等待新任务的添加）
-            //否则就会导致consume_task一直循环，直到该线程的时间片用完，导致效率降低
-            //注意这里实际上要先解锁的
-            //否则在consume_task()等待任务的过程中，add_user()和remove_user()无法添加任务
-            //但wait操作会帮我们执行解锁的过程
-            mq.cv.wait(lck);
+            //每隔1s就主动进行一次匹配（不论能否匹配上）
+            pool.match();
+            //匹配完成后要解锁，使得在间隔的1s内add_user()和remove_user()还能继续向队列中添加任务
+            lck.unlock();
+            sleep(1);
         } else {
             Task t = mq.q.front();
             mq.q.pop();
