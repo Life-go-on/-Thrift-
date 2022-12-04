@@ -142,7 +142,7 @@ class MatchHandler : virtual public MatchIf {
 		MatchHandler() {}
 
 		int32_t add_user(const User& user, const std::string& info) {
-        cout<<"add user:"<<user.id<<' '<<user.name<<' '<<user.score<<endl;//添加调试信息
+			cout<<"add user:"<<user.id<<' '<<user.name<<' '<<user.score<<endl;//添加调试信息
 			unique_lock<mutex> lck(mq.m);  //上锁
 			//由于unique_lock类的析构函数中有解锁的操作，因此在add_user()执行完后直接帮我们进行了解锁操作
 			mq.q.push({user, "add"});
@@ -153,7 +153,7 @@ class MatchHandler : virtual public MatchIf {
 		}
 
 		int32_t remove_user(const User& user, const std::string& info) {
-        cout<<"remove user:"<<user.id<<' '<<user.name<<' '<<user.score<<endl;//添加调试信息
+			cout<<"remove user:"<<user.id<<' '<<user.name<<' '<<user.score<<endl;//添加调试信息
 			unique_lock<mutex> lck(mq.m);
 			mq.q.push({user, "remove"});
 			mq.cv.notify_all();
@@ -174,30 +174,32 @@ class MatchCloneFactory : virtual public MatchIfFactory {
 };
 
 void consume_task() {
-    while (1) {
-        unique_lock<mutex> lck(mq.m);
-        if (mq.q.empty()) {
-            // message_queue.cv.wait(lck);
-            lck.unlock();
-            pool.match();
-            sleep(1);
-        } else {  //如果消息队列非空
-            Task t = mq.q.front();
-            mq.q.pop();
-            lck.unlock();  //解锁
-            //这里要提前解锁是为了在处理任务的过程中使得add_user()和remove_user()还能继续向队列中添加任务
-            if (t.type == "add")
-                pool.add(t.user);
-            else if (t.type == "remove")
-                pool.remove(t.user);
-        }
-    }
+	while (1) {
+		unique_lock<mutex> lck(mq.m);
+		if (mq.q.empty()) {
+			// message_queue.cv.wait(lck);
+			lck.unlock();
+			pool.match();
+			sleep(1);
+		} else {  //如果消息队列非空
+			Task t = mq.q.front();
+			mq.q.pop();
+			lck.unlock();  //解锁
+			//这里要提前解锁是为了在处理任务的过程中使得add_user()和remove_user()还能继续向队列中添加任务
+			if (t.type == "add")
+				pool.add(t.user);
+			else if (t.type == "remove")
+				pool.remove(t.user);
+		}
+	}
 }
 
 int main(int argc, char** argv) {
+	int port = 8080;  // thrift默认为9090，这里我们自定义为8080
+	//注意match client端也要相应的进行修改
 	TThreadedServer server(std::make_shared<MatchProcessorFactory>(
 				std::make_shared<MatchCloneFactory>()),
-			std::make_shared<TServerSocket>(9090),  // port
+			std::make_shared<TServerSocket>(port),
 			std::make_shared<TBufferedTransportFactory>(),
 			std::make_shared<TBinaryProtocolFactory>());
 
