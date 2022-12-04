@@ -142,8 +142,7 @@ class MatchHandler : virtual public MatchIf {
 		MatchHandler() {}
 
 		int32_t add_user(const User& user, const std::string& info) {
-			printf("add_user\n");
-
+        cout<<"add user:"<<user.id<<' '<<user.name<<' '<<user.score<<endl;//添加调试信息
 			unique_lock<mutex> lck(mq.m);  //上锁
 			//由于unique_lock类的析构函数中有解锁的操作，因此在add_user()执行完后直接帮我们进行了解锁操作
 			mq.q.push({user, "add"});
@@ -154,8 +153,7 @@ class MatchHandler : virtual public MatchIf {
 		}
 
 		int32_t remove_user(const User& user, const std::string& info) {
-			printf("remove_user\n");
-
+        cout<<"remove user:"<<user.id<<' '<<user.name<<' '<<user.score<<endl;//添加调试信息
 			unique_lock<mutex> lck(mq.m);
 			mq.q.push({user, "remove"});
 			mq.cv.notify_all();
